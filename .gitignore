@@ -55,7 +55,7 @@ docs/_static/
 docs/_templates/
 make.bat
 
-*.crfsuite
+*_????_??_??_??_??_??.crfsuite
 #.csv
 .txt
 
@@ -64,3 +64,4 @@ make.bat
 *#
 
 .DS_Store
+.idea

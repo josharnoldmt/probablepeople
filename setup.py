@@ -8,7 +8,7 @@ setup(
     version='0.5.4',
     url='https://github.com/datamade/probablepeople',
     description='Parse romanized names & companies using advanced NLP methods',
-    name='probablepeople',
+    name='probablepeople_mt',
     packages=['probablepeople'],
     package_data={'probablepeople' : ['generic_learned_settings.crfsuite',
                                       'person_learned_settings.crfsuite',
@@ -19,6 +19,7 @@ setup(
         'probableparsing',
         'future>=0.14',
         'doublemetaphone'],
+    python_requires='>=3.7',
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
@@ -36,6 +37,8 @@ setup(
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Information Analysis'],
     long_description="""
+        mt fork of probablepeople library
+
         probablepeople is a python library for parsing unstructured romanized name or company strings into components, using conditional random fields.
 
         From the python interpreter:
