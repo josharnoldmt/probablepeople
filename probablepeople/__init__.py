@@ -4,6 +4,8 @@
 from __future__ import division
 from builtins import zip
 from builtins import range
+from typing import Optional, List, Sequence, Any, Tuple, Mapping, Set
+
 from past.utils import old_div
 
 import os
@@ -47,14 +49,19 @@ LABELS = [
 PARENT_LABEL = 'Name'
 GROUP_LABEL = 'NameCollection'
 
-MODEL_FILES = {'generic' : 'generic_learned_settings.crfsuite',
+DEFAULT_MODEL_TYPE = 'generic'
+
+MODEL_FILES = {DEFAULT_MODEL_TYPE : 'generic_learned_settings.crfsuite',
                'person' : 'person_learned_settings.crfsuite',
                'company' : 'company_learned_settings.crfsuite'}
 # default model file to use if user doesn't specify a model file
-MODEL_FILE = MODEL_FILES['generic']
+MODEL_FILE = MODEL_FILES[DEFAULT_MODEL_TYPE]
 
 VOWELS_Y = tuple('aeiouy')
 PREPOSITIONS = {'for', 'to', 'of', 'on'}
+
+def _get_model_types():
+    return set(MODEL_FILES.keys())
 
 def _loadTagger(model_type) :
     tagger = pycrfsuite.Tagger()
@@ -69,7 +76,76 @@ def _loadTagger(model_type) :
 
 TAGGERS = {model_type : _loadTagger(model_type) for model_type in MODEL_FILES}
 
-TAGGER = _loadTagger('generic')
+TAGGER = _loadTagger(DEFAULT_MODEL_TYPE)
+
+
+def _get_tagger(model_type: Optional[str]) -> pycrfsuite.Tagger:
+    model_type = DEFAULT_MODEL_TYPE if model_type is None else model_type
+    tagger=TAGGERS[model_type]
+
+    if not tagger:
+        raise IOError(
+            '\nMISSING MODEL FILE: %s\nYou must train the model before you can use the parse and tag methods\nTo train the model annd create the model file, run:\nparserator train [traindata] [modulename]' %
+            MODEL_FILES[model_type])
+    return tagger
+
+class Parsed:
+    input_string: str
+    model_type: str
+    tokens: Sequence[str] = ()
+    features: Sequence[Any] = ()
+    labels: Sequence[str] = ()
+    overall_probability: float = 1.0
+    marginal_probabilities: Sequence[float] = []
+
+    def __init__(self, input_string: str, model_type: Optional[str] = None):
+        self.input_string = input_string
+        self.model_type = model_type if model_type is not None else DEFAULT_MODEL_TYPE
+        tagger = _get_tagger(self.model_type)
+
+        self.tokens = list(tokenize(input_string))
+        if self.tokens:
+            self.features = tokens2features(self.tokens)
+            self.labels = list(tagger.tag(self.features))
+            self.overall_probability = tagger.probability(self.labels)
+            self.marginal_probabilities = [tagger.marginal(label,pos) for pos,label in enumerate(self.labels)]
+
+    @property
+    def parsed(self) -> List[Tuple[str,str]]:
+        """Get the sequence of (token,label) tuples"""
+        return list(zip(self.tokens, self.labels))
+
+    @property
+    def tagged(self) -> Tuple[Mapping[str,str],str]:
+        """
+        Get the label->substring mapping and overall address type
+
+        Notes:
+            1. The values in the label->substring map may be tokens or the concatenation of tokens (with space delimiters)
+            2. This can raise a RepeatedLabelError if the tagging is ambiguous
+            3. The labels come from an extended set, given by "get_known_tagged_labels"
+            4. The address types can come from the set given by "get_known_tagged_overall_types"
+        """
+        return _tag0(self.input_string, self.parsed)
+
+    @staticmethod
+    def get_known_parsed_labels(model_type: Optional[str] = None) -> Set[str]:
+        """Get the possible labels returned by parsed"""
+        return set(_get_tagger(model_type).labels())
+
+    @staticmethod
+    def get_known_tagged_labels(model_type: Optional[str] = None) -> Set[str]:
+        """Get the possible labels returned by tagged"""
+        r = list(_get_tagger(model_type).labels())
+        extensions=[e+s for e in ('Second','Other','Proxied') for s in r]
+        r.extend(extensions)
+        return set(r)
+
+    @staticmethod
+    def get_known_tagged_overall_types(model_type: Optional[str] = None) -> Set[str]:
+        """Get the possible entity types"""
+        return set(['Corporation','Household','Person'])
+
 
 def parse(raw_string, type=None):
     if type is None:
@@ -88,6 +164,9 @@ def parse(raw_string, type=None):
     return list(zip(tokens, tags))
 
 def tag(raw_string, type=None) :
+    return _tag0(raw_string, parse(raw_string,type))
+
+def _tag0(original_string, tokens_and_labels):
     tagged = OrderedDict()
 
     prev_label = None
@@ -103,7 +182,7 @@ def tag(raw_string, type=None) :
                          'OtherCorporationNameBranchType',
                          'OtherCorporationNameBranchIdentifier')
 
-    for token, label in parse(raw_string, type) :
+    for token, label in tokens_and_labels :
         original_label = label
 
         if label == 'And':
@@ -129,7 +208,7 @@ def tag(raw_string, type=None) :
             tagged[label].append(token)
 
         else:
-            raise RepeatedLabelError(raw_string, parse(raw_string), label)
+            raise RepeatedLabelError(original_string, tokens_and_labels, label)
 
         prev_label = label
 
@@ -171,7 +250,7 @@ def tokenize(raw_string) :
 
     return tokens
 
-def tokens2features(tokens):
+def tokens2features(tokens) -> list:
     
     feature_sequence = [tokenFeatures(tokens[0])]
     previous_features = feature_sequence[-1].copy()
